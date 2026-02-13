@@ -4,7 +4,9 @@ import threading
 import time
 from datetime import datetime, timezone
 from io import BytesIO
+from io import StringIO
 from pathlib import Path
+from functools import wraps
 
 import requests
 from bs4 import BeautifulSoup
@@ -126,12 +128,12 @@ def set_setting(key: str, value: str) -> None:
 
 
 def login_required(view_func):
+    @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not session.get("user"):
             return redirect(url_for("login"))
         return view_func(*args, **kwargs)
 
-    wrapper.__name__ = view_func.__name__
     return wrapper
 
 
@@ -505,8 +507,8 @@ def export_chamados_csv():
     )
     rows = cursor.fetchall()
     conn.close()
-    output = BytesIO()
-    writer = csv.writer(output)
+    text_output = StringIO()
+    writer = csv.writer(text_output)
     writer.writerow(["Placa", "Transportadora", "Status", "Atualizado em"])
     for row in rows:
         writer.writerow(
@@ -517,6 +519,7 @@ def export_chamados_csv():
                 row["timestamp_ultima_atualizacao"],
             ]
         )
+    output = BytesIO(text_output.getvalue().encode("utf-8"))
     output.seek(0)
     return send_file(
         output,
