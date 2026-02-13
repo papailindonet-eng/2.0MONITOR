@@ -1,4 +1,5 @@
 import csv
+import logging
 import re
 import sqlite3
 import threading
@@ -40,6 +41,9 @@ app = Flask(__name__)
 app.secret_key = "change-me"
 app.config["JSON_SORT_KEYS"] = False
 socketio = SocketIO(app, async_mode="threading")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("monitoramento")
 
 rate_limit_lock = threading.Lock()
 rate_limit_data = {}
@@ -101,6 +105,11 @@ def init_db():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             (key, value),
         )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_veiculos_placa ON veiculos (placa)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_veiculos_status ON veiculos (status_atual)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_historico_placa_data ON historico_chamados (placa, timestamp_mudanca)"
+    )
     conn.commit()
     conn.close()
 
@@ -126,6 +135,24 @@ def set_setting(key: str, value: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def get_scrape_interval() -> float:
+    raw_value = get_setting("scrape_interval")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("Valor inválido para scrape_interval (%s). Usando 10s.", raw_value)
+        return 10.0
+    if value < 5:
+        return 5.0
+    if value > 3600:
+        return 3600.0
+    return value
+
+
+def normalize_transportadora(value: str) -> str:
+    return normalize_text(value).upper()
 
 
 def login_required(view_func):
@@ -197,18 +224,38 @@ def extract_vehicle_from_cols(cols):
 
 def cleanup_invalid_vehicles(conn):
     cursor = conn.cursor()
-    cursor.execute("SELECT id, placa FROM veiculos")
+    cursor.execute("SELECT id, placa FROM veiculos ORDER BY id ASC")
     invalid_ids = []
+    seen_placas = set()
+    duplicated_ids = []
     for row in cursor.fetchall():
-        if not is_plate(row["placa"]):
+        placa = (row["placa"] or "").upper()
+        if not is_plate(placa):
             invalid_ids.append(row["id"])
+            continue
+        if placa in seen_placas:
+            duplicated_ids.append(row["id"])
+            continue
+        seen_placas.add(placa)
+
     if invalid_ids:
         cursor.executemany("DELETE FROM veiculos WHERE id = ?", [(item,) for item in invalid_ids])
+        logger.info("Removidos %s registros inválidos da tabela veiculos", len(invalid_ids))
+    if duplicated_ids:
+        cursor.executemany("DELETE FROM veiculos WHERE id = ?", [(item,) for item in duplicated_ids])
+        logger.info("Removidos %s registros duplicados por placa", len(duplicated_ids))
 
 
 def scrape_target():
     url = "https://agendeam.com.br/ujf/motorista.php"
-    response = requests.get(url, timeout=10)
+    response = requests.get(
+        url,
+        timeout=20,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+    )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     rows = soup.find_all("tr")
@@ -318,17 +365,18 @@ def broadcast_updates():
 
 def run_scraper():
     while True:
-        interval = float(get_setting("scrape_interval") or 10)
+        interval = get_scrape_interval()
         start = time.time()
+        conn = None
         try:
             vehicles = scrape_target()
             conn = get_db_connection()
             cleanup_invalid_vehicles(conn)
-            critical_target = normalize_text(get_setting("alert_transportadora"))
+            critical_target = normalize_transportadora(get_setting("alert_transportadora"))
             for vehicle in vehicles:
                 vehicle_id, history_id = upsert_vehicle(conn, vehicle)
-                if history_id and normalize_text(vehicle["status"]) == "CHAMADO DA PORTARIA":
-                    if normalize_text(vehicle["transportadora"]) == critical_target:
+                if history_id and normalize_text(vehicle["status"]).upper() == "CHAMADO DA PORTARIA":
+                    if normalize_transportadora(vehicle["transportadora"]) == critical_target:
                         socketio.emit(
                             "critical_alert",
                             {
@@ -340,7 +388,6 @@ def run_scraper():
                             },
                         )
             conn.commit()
-            conn.close()
             duration = int((time.time() - start) * 1000)
             scrape_status.update(
                 {
@@ -351,11 +398,18 @@ def run_scraper():
                     "online": True,
                 }
             )
+            logger.info("Ciclo de scraping concluído com %s veículos em %sms", len(vehicles), duration)
             broadcast_updates()
         except Exception as exc:
+            if conn:
+                conn.rollback()
             scrape_status["last_error"] = str(exc)
             scrape_status["failures"] += 1
             scrape_status["online"] = False
+            logger.exception("Falha no ciclo de scraping: %s", exc)
+        finally:
+            if conn:
+                conn.close()
         time.sleep(interval)
 
 
@@ -410,11 +464,26 @@ def relatorios():
 @login_required
 def configuracoes():
     if request.method == "POST":
-        set_setting("scrape_interval", request.form.get("scrape_interval", "10"))
-        set_setting(
-            "alert_transportadora", request.form.get("alert_transportadora", "")
-        )
-        set_setting("alert_volume", request.form.get("alert_volume", "1.0"))
+        scrape_interval = request.form.get("scrape_interval", "10").strip()
+        alert_transportadora = request.form.get("alert_transportadora", "").strip()
+        alert_volume = request.form.get("alert_volume", "1.0").strip()
+
+        try:
+            interval_value = float(scrape_interval)
+            if interval_value < 5:
+                interval_value = 5
+        except ValueError:
+            interval_value = 10
+
+        try:
+            volume_value = float(alert_volume)
+            volume_value = min(max(volume_value, 0.0), 1.0)
+        except ValueError:
+            volume_value = 1.0
+
+        set_setting("scrape_interval", str(interval_value))
+        set_setting("alert_transportadora", alert_transportadora or DEFAULT_SETTINGS["alert_transportadora"])
+        set_setting("alert_volume", str(volume_value))
         flash("Configurações atualizadas.", "success")
         return redirect(url_for("configuracoes"))
     settings = {

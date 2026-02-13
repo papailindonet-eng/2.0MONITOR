@@ -112,3 +112,20 @@ Enquanto houver navegador conectado, o terminal mostrara requisicoes frequentes 
 
 Isso significa que a atualizacao em tempo real esta ativa.
 
+
+
+## Se ainda "não está funcionando"
+
+Tente este reset rápido no Windows (na pasta do projeto):
+
+```bat
+rmdir /s /q .venv
+del database.db
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
+
+Depois acesse `http://localhost:5000/login`.
+
