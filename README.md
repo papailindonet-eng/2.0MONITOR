@@ -19,6 +19,23 @@ source .venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 ```
 
+
+## Execucao automatica no Windows (.bat)
+
+Se preferir, execute o arquivo abaixo com duplo clique (ou pelo Prompt):
+
+```bat
+run_monitoramento.bat
+```
+
+Ele faz automaticamente:
+
+- deteccao do Python
+- criacao do `.venv`
+- instalacao das dependencias
+- abertura do navegador em `http://localhost:5000/login`
+- inicializacao do servidor
+
 ## Como executar
 
 ```bash
