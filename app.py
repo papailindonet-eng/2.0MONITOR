@@ -1,4 +1,5 @@
 import csv
+import re
 import sqlite3
 import threading
 import time
@@ -157,6 +158,54 @@ def normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
 
 
+def is_plate(value: str) -> bool:
+    if not value:
+        return False
+    cleaned = re.sub(r"[^A-Z0-9]", "", value.upper())
+    return bool(re.fullmatch(r"[A-Z]{3}[0-9][A-Z0-9][0-9]{2}", cleaned))
+
+
+def is_status(value: str) -> bool:
+    status_tokens = ("FILA", "PORTARIA", "CHAMADO", "PATIO", "LIBERADO", "AGUARDANDO")
+    upper_value = value.upper()
+    return any(token in upper_value for token in status_tokens)
+
+
+def extract_vehicle_from_cols(cols):
+    placa = next((item for item in cols if is_plate(item)), None)
+    if not placa:
+        return None
+
+    status = next((item for item in cols if is_status(item)), None)
+    if not status:
+        status = cols[-1]
+
+    transportadora = ""
+    for item in cols:
+        if item != placa and item != status and len(item) > len(transportadora):
+            transportadora = item
+
+    if not transportadora:
+        transportadora = "NÃO INFORMADA"
+
+    return {
+        "placa": placa.upper(),
+        "transportadora": transportadora,
+        "status": status,
+    }
+
+
+def cleanup_invalid_vehicles(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, placa FROM veiculos")
+    invalid_ids = []
+    for row in cursor.fetchall():
+        if not is_plate(row["placa"]):
+            invalid_ids.append(row["id"])
+    if invalid_ids:
+        cursor.executemany("DELETE FROM veiculos WHERE id = ?", [(item,) for item in invalid_ids])
+
+
 def scrape_target():
     url = "https://agendeam.com.br/ujf/motorista.php"
     response = requests.get(url, timeout=10)
@@ -166,18 +215,13 @@ def scrape_target():
     vehicles = []
     for row in rows:
         cols = [normalize_text(col.get_text(" ")) for col in row.find_all("td")]
+        cols = [item for item in cols if item]
         if len(cols) < 3:
             continue
-        placa, transportadora, status = cols[0], cols[1], cols[2]
-        if not placa:
+        vehicle = extract_vehicle_from_cols(cols)
+        if not vehicle:
             continue
-        vehicles.append(
-            {
-                "placa": placa,
-                "transportadora": transportadora,
-                "status": status,
-            }
-        )
+        vehicles.append(vehicle)
     return vehicles
 
 
@@ -279,6 +323,7 @@ def run_scraper():
         try:
             vehicles = scrape_target()
             conn = get_db_connection()
+            cleanup_invalid_vehicles(conn)
             critical_target = normalize_text(get_setting("alert_transportadora"))
             for vehicle in vehicles:
                 vehicle_id, history_id = upsert_vehicle(conn, vehicle)

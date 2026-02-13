@@ -100,3 +100,15 @@ pip install -r requirements.txt
 python app.py
 ```
 
+
+
+## CMD com varias linhas GET /socket.io: esta correto?
+
+Sim. Esse log e normal no Flask-SocketIO (polling/websocket).
+Enquanto houver navegador conectado, o terminal mostrara requisicoes frequentes como:
+
+- `GET /socket.io/?EIO=4...`
+- `POST /socket.io/?EIO=4...`
+
+Isso significa que a atualizacao em tempo real esta ativa.
+

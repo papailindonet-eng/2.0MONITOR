@@ -6,29 +6,30 @@
     <title>2.0 Monitor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css" />
   </head>
   <body class="bg-slate-950 text-slate-100">
     <div class="flex min-h-screen">
       <aside class="w-64 bg-slate-900 border-r border-slate-800 p-6">
         <div class="text-xl font-semibold mb-8">2.0 Monitor</div>
         <nav class="space-y-3 text-sm">
-          <a class="block text-slate-200 hover:text-white" href="/">Painel Geral</a>
-          <a class="block text-slate-200 hover:text-white" href="/monitoramento">
+          <a class="sidebar-link text-slate-200" href="/">Painel Geral</a>
+          <a class="sidebar-link text-slate-200" href="/monitoramento">
             Monitoramento em Tempo Real
           </a>
-          <a class="block text-slate-200 hover:text-white" href="/historico">
+          <a class="sidebar-link text-slate-200" href="/historico">
             Histórico de Chamados
           </a>
-          <a class="block text-slate-200 hover:text-white" href="/relatorios">
+          <a class="sidebar-link text-slate-200" href="/relatorios">
             Relatórios
           </a>
-          <a class="block text-slate-200 hover:text-white" href="/configuracoes">
+          <a class="sidebar-link text-slate-200" href="/configuracoes">
             Configurações
           </a>
-          <a class="block text-slate-200 hover:text-white" href="/chamados_portaria">
+          <a class="sidebar-link text-slate-200" href="/chamados_portaria">
             Chamados da Portaria
           </a>
-          <a class="block text-slate-200 hover:text-white" href="/saude">
+          <a class="sidebar-link text-slate-200" href="/saude">
             Saúde do Monitoramento
           </a>
         </nav>
@@ -47,7 +48,7 @@
       id="alert-modal"
       class="fixed inset-0 bg-black/80 flex items-center justify-center hidden"
     >
-      <div class="bg-red-600 text-white p-8 rounded-lg max-w-lg w-full">
+      <div class="bg-red-600 text-white p-8 rounded-lg max-w-lg w-full card">
         <h2 class="text-2xl font-bold mb-4">ALERTA CRÍTICO</h2>
         <p class="mb-6">
           Transportadora SEIS acionou chamado da portaria.
@@ -65,5 +66,13 @@
     <audio id="alert-audio" src="/static/audio/alerta.mp3" preload="auto"></audio>
 
     <script src="/static/js/main.js"></script>
+    <script>
+      const currentPath = window.location.pathname;
+      document.querySelectorAll("aside nav a").forEach((link) => {
+        if (link.getAttribute("href") === currentPath) {
+          link.classList.add("active");
+        }
+      });
+    </script>
   </body>
 </html>
