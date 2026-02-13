@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="space-y-6">
+    <div>
+      <h1 class="text-2xl font-semibold">Chamados da Portaria</h1>
+      <p class="text-slate-400">Lista de veículos com status crítico.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <input
+        id="chamados-search"
+        type="text"
+        placeholder="Buscar placa ou transportadora"
+        class="bg-slate-900 border border-slate-700 rounded px-3 py-2"
+      />
+      <select
+        id="chamados-status-filter"
+        class="bg-slate-900 border border-slate-700 rounded px-3 py-2"
+      >
+        <option value="">Todos os status</option>
+        <option value="CHAMADO DA PORTARIA">CHAMADO DA PORTARIA</option>
+      </select>
+      <select
+        id="chamados-transportadora-filter"
+        class="bg-slate-900 border border-slate-700 rounded px-3 py-2"
+      >
+        <option value="">Todas</option>
+      </select>
+      <input
+        id="chamados-date-filter"
+        type="date"
+        class="bg-slate-900 border border-slate-700 rounded px-3 py-2"
+      />
+    </div>
+
+    <div class="flex gap-3">
+      <a
+        href="/export/chamados_portaria.csv"
+        class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded text-sm"
+      >
+        Exportar CSV
+      </a>
+      <a
+        href="/export/chamados_portaria.pdf"
+        class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded text-sm"
+      >
+        Exportar PDF
+      </a>
+    </div>
+
+    <div class="bg-slate-900 border border-slate-800 rounded-lg">
+      <div class="p-4 border-b border-slate-800">
+        <h2 class="font-semibold">Chamados ativos</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="text-left text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Placa</th>
+              <th class="px-4 py-3">Transportadora</th>
+              <th class="px-4 py-3">Status</th>
+              <th class="px-4 py-3">Atualizado em</th>
+            </tr>
+          </thead>
+          <tbody id="chamados-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
