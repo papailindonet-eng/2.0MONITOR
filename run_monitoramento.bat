@@ -45,8 +45,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/5] Abrindo o site no navegador...
-start "" "http://localhost:5000/login"
+echo [4/5] Preparando abertura automatica do navegador...
+start "" powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 5; Start-Process 'http://localhost:5000/login'"
 
 echo [5/5] Iniciando aplicacao Flask...
 echo (Mantenha esta janela aberta para o sistema continuar rodando)

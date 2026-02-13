@@ -76,5 +76,27 @@ Backup recomendado: copie esse arquivo periodicamente.
 
 - Em produção, utilize HTTPS (obrigatório para segurança).
 - Troque `app.secret_key` e credenciais padrão antes de publicar.
-- Rode atrás de um servidor apropriado (ex.: gunicorn/eventlet + reverse proxy).
+- Rode atrás de um servidor apropriado (ex.: gunicorn com workers de thread/gevent + reverse proxy).
+
+
+
+## Solucao para erro no Windows (eventlet / Python 3.13+ / 3.14)
+
+Se aparecer erro parecido com:
+
+- `AttributeError: module 'eventlet.green.thread' has no attribute 'start_joinable_thread'`
+
+isso acontece por incompatibilidade do `eventlet` com versoes recentes do Python.
+
+Este projeto agora usa `Flask-SocketIO` no modo `threading` (sem `eventlet`) para funcionar no Windows de forma mais estavel.
+
+Se voce ja tinha um ambiente antigo, recrie a venv:
+
+```bat
+rmdir /s /q .venv
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
 

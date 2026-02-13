@@ -38,7 +38,7 @@ DEFAULT_SETTINGS = {
 app = Flask(__name__)
 app.secret_key = "change-me"
 app.config["JSON_SORT_KEYS"] = False
-socketio = SocketIO(app, async_mode="eventlet")
+socketio = SocketIO(app, async_mode="threading")
 
 rate_limit_lock = threading.Lock()
 rate_limit_data = {}
@@ -574,4 +574,4 @@ def handle_connect():
 if __name__ == "__main__":
     init_db()
     socketio.start_background_task(run_scraper)
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
