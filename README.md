@@ -132,4 +132,6 @@ Depois acesse `http://localhost:5000/login`.
 
 Você também pode ajustar a **URL de scraping** em Configurações, caso o endpoint mude.
 
+O scraping agora tenta `cloudscraper` primeiro (quando disponível) para melhorar compatibilidade com proteções anti-bot do site principal.
+
 O parser agora aceita placa antiga (ABC1234) e Mercosul (ABC1D23).

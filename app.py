@@ -13,6 +13,11 @@ from functools import wraps
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+try:
+    import cloudscraper
+except Exception:  # dependência opcional
+    cloudscraper = None
 from bs4 import BeautifulSoup
 from fpdf import FPDF
 from flask import (
@@ -62,6 +67,7 @@ scrape_status = {
 
 def build_http_session() -> requests.Session:
     session = requests.Session()
+    session.trust_env = False
     retry = Retry(
         total=3,
         connect=3,
@@ -74,6 +80,33 @@ def build_http_session() -> requests.Session:
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+def fetch_html(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
+
+    if cloudscraper is not None:
+        try:
+            scraper = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+            scraper.headers.update(headers)
+            response = scraper.get(url, timeout=25)
+            response.raise_for_status()
+            html = response.text or ""
+            if html.strip():
+                logger.info("HTML obtido via cloudscraper")
+                return html
+        except Exception as exc:
+            logger.warning("cloudscraper falhou, voltando para requests: %s", exc)
+
+    session = build_http_session()
+    response = session.get(url, timeout=25, headers=headers)
+    response.raise_for_status()
+    return response.text
 
 
 
@@ -273,6 +306,46 @@ def cleanup_invalid_vehicles(conn):
         logger.info("Removidos %s registros duplicados por placa", len(duplicated_ids))
 
 
+def parse_from_tables(soup: BeautifulSoup):
+    vehicles = []
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            continue
+
+        header_cells = rows[0].find_all(["th", "td"])
+        headers = [normalize_text(cell.get_text(" ")).upper() for cell in header_cells]
+        if not headers:
+            continue
+
+        placa_idx = next((i for i, h in enumerate(headers) if "PLACA" in h), None)
+        trans_idx = next((i for i, h in enumerate(headers) if "TRANSPORT" in h or "EMPRESA" in h), None)
+        status_idx = next((i for i, h in enumerate(headers) if "STATUS" in h or "SITUA" in h), None)
+
+        if placa_idx is None:
+            continue
+
+        for row in rows[1:]:
+            cols = [normalize_text(cell.get_text(" ")) for cell in row.find_all("td")]
+            if not cols:
+                continue
+            if placa_idx >= len(cols):
+                continue
+            plate = cols[placa_idx]
+            if not is_plate(plate):
+                continue
+            transportadora = cols[trans_idx] if trans_idx is not None and trans_idx < len(cols) else "NÃO INFORMADA"
+            status = cols[status_idx] if status_idx is not None and status_idx < len(cols) else "NÃO INFORMADO"
+            vehicles.append(
+                {
+                    "placa": re.sub(r"[^A-Z0-9]", "", plate.upper()),
+                    "transportadora": transportadora or "NÃO INFORMADA",
+                    "status": status or "NÃO INFORMADO",
+                }
+            )
+    return vehicles
+
+
 def parse_from_json_like_payload(payload: str):
     vehicles = []
     pattern = re.compile(
@@ -345,31 +418,21 @@ def parse_from_plate_context(payload: str):
 
 def scrape_target():
     url = get_setting("scrape_url") or DEFAULT_SETTINGS["scrape_url"]
-    session = build_http_session()
-    response = session.get(
-        url,
-        timeout=25,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
-            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-    )
-    response.raise_for_status()
-    html = response.text
+    html = fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
-    rows = soup.find_all("tr")
-    vehicles = []
-    for row in rows:
-        cols = [normalize_text(col.get_text(" ")) for col in row.find_all("td")]
-        cols = [item for item in cols if item]
-        if len(cols) < 3:
-            continue
-        vehicle = extract_vehicle_from_cols(cols)
-        if not vehicle:
-            continue
-        vehicles.append(vehicle)
+
+    vehicles = parse_from_tables(soup)
+
+    if not vehicles:
+        rows = soup.find_all("tr")
+        for row in rows:
+            cols = [normalize_text(col.get_text(" ")) for col in row.find_all("td")]
+            cols = [item for item in cols if item]
+            if len(cols) < 3:
+                continue
+            vehicle = extract_vehicle_from_cols(cols)
+            if vehicle:
+                vehicles.append(vehicle)
 
     if not vehicles:
         vehicles = parse_from_json_like_payload(html)
@@ -379,7 +442,11 @@ def scrape_target():
     dedup = {}
     for item in vehicles:
         dedup[item["placa"]] = item
-    logger.info("Scraping URL %s retornou %s veículos", url, len(dedup))
+
+    if not dedup:
+        logger.warning("Scraping retornou 0 veículos para %s", url)
+    else:
+        logger.info("Scraping URL %s retornou %s veículos", url, len(dedup))
     return list(dedup.values())
 
 
