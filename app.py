@@ -210,7 +210,13 @@ def is_plate(value: str) -> bool:
     if not value:
         return False
     cleaned = re.sub(r"[^A-Z0-9]", "", value.upper())
-    return bool(re.fullmatch(r"[A-Z]{3}[0-9][A-Z0-9][0-9]{2}", cleaned))
+    # Formatos aceitos:
+    # - Antigo: ABC1234
+    # - Mercosul: ABC1D23
+    return bool(
+        re.fullmatch(r"[A-Z]{3}[0-9]{4}", cleaned)
+        or re.fullmatch(r"[A-Z]{3}[0-9][A-Z0-9][0-9]{2}", cleaned)
+    )
 
 
 def is_status(value: str) -> bool:
@@ -287,6 +293,56 @@ def parse_from_json_like_payload(payload: str):
     return vehicles
 
 
+
+
+def parse_from_plate_context(payload: str):
+    vehicles = []
+    matches = list(re.finditer(r"\b[A-Z]{3}[- ]?[0-9][A-Z0-9]?[0-9]{2,3}\b", payload, re.IGNORECASE))
+    status_vocab = [
+        "FILA",
+        "CHAMADO DA PORTARIA",
+        "AGUARDANDO",
+        "LIBERADO",
+        "PATIO",
+        "PORTARIA",
+    ]
+    for match in matches:
+        raw_plate = match.group(0)
+        placa = re.sub(r"[^A-Z0-9]", "", raw_plate.upper())
+        if not is_plate(placa):
+            continue
+
+        window_start = max(0, match.start() - 200)
+        window_end = min(len(payload), match.end() + 200)
+        context = payload[window_start:window_end]
+        transportadora = "NÃO INFORMADA"
+        status = "NÃO INFORMADO"
+
+        for candidate in status_vocab:
+            if candidate in context.upper():
+                status = candidate
+                break
+
+        # Tentativa simples: pegar maior trecho textual do contexto
+        text_chunks = [normalize_text(x) for x in re.split(r"[\n\r\t|;]+", context)]
+        text_chunks = [x for x in text_chunks if x and x.upper() != placa and len(x) >= 5]
+        if text_chunks:
+            transportadora = max(text_chunks, key=len)[:120]
+
+        vehicles.append(
+            {
+                "placa": placa,
+                "transportadora": transportadora,
+                "status": status,
+            }
+        )
+
+    dedup = {}
+    for item in vehicles:
+        dedup[item["placa"]] = item
+    return list(dedup.values())
+
+
 def scrape_target():
     url = get_setting("scrape_url") or DEFAULT_SETTINGS["scrape_url"]
     session = build_http_session()
@@ -317,6 +373,8 @@ def scrape_target():
 
     if not vehicles:
         vehicles = parse_from_json_like_payload(html)
+    if not vehicles:
+        vehicles = parse_from_plate_context(html)
 
     dedup = {}
     for item in vehicles:

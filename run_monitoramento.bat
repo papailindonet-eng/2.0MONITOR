@@ -45,11 +45,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/5] Preparando abertura automatica do navegador...
-start "" powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 5; Start-Process 'http://localhost:5000/login'"
+echo [4/5] Iniciando aplicacao Flask...
+start "monitoramento_server" cmd /c "call .venv\Scripts\activate.bat && python app.py"
 
-echo [5/5] Iniciando aplicacao Flask...
-echo (Mantenha esta janela aberta para o sistema continuar rodando)
-python app.py
+echo [5/5] Aguardando servidor e abrindo navegador...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ok=$false; for($i=0; $i -lt 40; $i++){ try { $r=Invoke-WebRequest -Uri 'http://localhost:5000/login' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -ge 200){$ok=$true; break} } catch {}; Start-Sleep -Milliseconds 500 }; if($ok){ Start-Process 'http://localhost:5000/login' } else { Write-Host 'Servidor nao respondeu em tempo.' }"
 
+echo.
+echo Servidor iniciado em nova janela. Para parar, feche a janela "monitoramento_server".
+pause
 endlocal

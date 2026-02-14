@@ -33,8 +33,8 @@ Ele faz automaticamente:
 - deteccao do Python
 - criacao do `.venv`
 - instalacao das dependencias
-- abertura do navegador em `http://localhost:5000/login`
-- inicializacao do servidor
+- inicializacao do servidor em nova janela (`monitoramento_server`)
+- espera o servidor responder e so depois abre `http://localhost:5000/login`
 
 ## Como executar
 
@@ -131,3 +131,5 @@ Depois acesse `http://localhost:5000/login`.
 
 
 Você também pode ajustar a **URL de scraping** em Configurações, caso o endpoint mude.
+
+O parser agora aceita placa antiga (ABC1234) e Mercosul (ABC1D23).
