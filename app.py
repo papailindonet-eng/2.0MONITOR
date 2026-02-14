@@ -11,6 +11,8 @@ from pathlib import Path
 from functools import wraps
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from fpdf import FPDF
 from flask import (
@@ -35,6 +37,7 @@ DEFAULT_SETTINGS = {
     "scrape_interval": "10",
     "alert_transportadora": "TRANSPORTADORA SEIS",
     "alert_volume": "1.0",
+    "scrape_url": "https://agendeam.com.br/ujf/motorista.php",
 }
 
 app = Flask(__name__)
@@ -55,6 +58,24 @@ scrape_status = {
     "response_time_ms": None,
     "online": False,
 }
+
+
+def build_http_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
 
 
 def get_db_connection():
@@ -246,18 +267,42 @@ def cleanup_invalid_vehicles(conn):
         logger.info("Removidos %s registros duplicados por placa", len(duplicated_ids))
 
 
+def parse_from_json_like_payload(payload: str):
+    vehicles = []
+    pattern = re.compile(
+        r'placa["\']?\s*[:=]\s*["\'](?P<placa>[^"\']+)["\'].*?'
+        r'transportadora["\']?\s*[:=]\s*["\'](?P<transportadora>[^"\']+)["\'].*?'
+        r'status(?:_atual)?["\']?\s*[:=]\s*["\'](?P<status>[^"\']+)["\']',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(payload):
+        placa = normalize_text(match.group('placa')).upper()
+        if not is_plate(placa):
+            continue
+        vehicles.append({
+            'placa': placa,
+            'transportadora': normalize_text(match.group('transportadora')) or 'NÃO INFORMADA',
+            'status': normalize_text(match.group('status')) or 'NÃO INFORMADO',
+        })
+    return vehicles
+
+
 def scrape_target():
-    url = "https://agendeam.com.br/ujf/motorista.php"
-    response = requests.get(
+    url = get_setting("scrape_url") or DEFAULT_SETTINGS["scrape_url"]
+    session = build_http_session()
+    response = session.get(
         url,
-        timeout=20,
+        timeout=25,
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
         },
     )
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
+    html = response.text
+    soup = BeautifulSoup(html, "html.parser")
     rows = soup.find_all("tr")
     vehicles = []
     for row in rows:
@@ -269,7 +314,15 @@ def scrape_target():
         if not vehicle:
             continue
         vehicles.append(vehicle)
-    return vehicles
+
+    if not vehicles:
+        vehicles = parse_from_json_like_payload(html)
+
+    dedup = {}
+    for item in vehicles:
+        dedup[item["placa"]] = item
+    logger.info("Scraping URL %s retornou %s veículos", url, len(dedup))
+    return list(dedup.values())
 
 
 def upsert_vehicle(conn, vehicle):
@@ -467,6 +520,7 @@ def configuracoes():
         scrape_interval = request.form.get("scrape_interval", "10").strip()
         alert_transportadora = request.form.get("alert_transportadora", "").strip()
         alert_volume = request.form.get("alert_volume", "1.0").strip()
+        scrape_url = request.form.get("scrape_url", DEFAULT_SETTINGS["scrape_url"]).strip()
 
         try:
             interval_value = float(scrape_interval)
@@ -484,12 +538,14 @@ def configuracoes():
         set_setting("scrape_interval", str(interval_value))
         set_setting("alert_transportadora", alert_transportadora or DEFAULT_SETTINGS["alert_transportadora"])
         set_setting("alert_volume", str(volume_value))
+        set_setting("scrape_url", scrape_url or DEFAULT_SETTINGS["scrape_url"])
         flash("Configurações atualizadas.", "success")
         return redirect(url_for("configuracoes"))
     settings = {
         "scrape_interval": get_setting("scrape_interval"),
         "alert_transportadora": get_setting("alert_transportadora"),
         "alert_volume": get_setting("alert_volume"),
+        "scrape_url": get_setting("scrape_url"),
     }
     return render_template("configuracoes.html", settings=settings)
 

@@ -129,3 +129,5 @@ python app.py
 
 Depois acesse `http://localhost:5000/login`.
 
+
+Você também pode ajustar a **URL de scraping** em Configurações, caso o endpoint mude.
