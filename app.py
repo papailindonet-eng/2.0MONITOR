@@ -65,9 +65,9 @@ scrape_status = {
 }
 
 
-def build_http_session() -> requests.Session:
+def build_http_session(use_env_proxy: bool) -> requests.Session:
     session = requests.Session()
-    session.trust_env = False
+    session.trust_env = use_env_proxy
     retry = Retry(
         total=3,
         connect=3,
@@ -90,23 +90,44 @@ def fetch_html(url: str) -> str:
         "Pragma": "no-cache",
     }
 
+    attempts = []
+
     if cloudscraper is not None:
+        for use_env_proxy in (False, True):
+            try:
+                mode = "cloudscraper+proxy_env" if use_env_proxy else "cloudscraper+direct"
+                scraper = cloudscraper.create_scraper(
+                    browser={"browser": "chrome", "platform": "windows", "mobile": False}
+                )
+                scraper.trust_env = use_env_proxy
+                scraper.headers.update(headers)
+                response = scraper.get(url, timeout=25)
+                response.raise_for_status()
+                html = response.text or ""
+                if html.strip():
+                    logger.info("HTML obtido via %s", mode)
+                    return html
+                attempts.append(f"{mode}: resposta vazia")
+            except Exception as exc:
+                attempts.append(f"{mode}: {exc}")
+
+    for use_env_proxy in (False, True):
         try:
-            scraper = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
-            scraper.headers.update(headers)
-            response = scraper.get(url, timeout=25)
+            mode = "requests+proxy_env" if use_env_proxy else "requests+direct"
+            session = build_http_session(use_env_proxy=use_env_proxy)
+            response = session.get(url, timeout=25, headers=headers)
             response.raise_for_status()
             html = response.text or ""
             if html.strip():
-                logger.info("HTML obtido via cloudscraper")
+                logger.info("HTML obtido via %s", mode)
                 return html
+            attempts.append(f"{mode}: resposta vazia")
         except Exception as exc:
-            logger.warning("cloudscraper falhou, voltando para requests: %s", exc)
+            attempts.append(f"{mode}: {exc}")
 
-    session = build_http_session()
-    response = session.get(url, timeout=25, headers=headers)
-    response.raise_for_status()
-    return response.text
+    raise RuntimeError(
+        "Falha ao acessar URL de scraping. Tentativas: " + " | ".join(attempts)
+    )
 
 
 

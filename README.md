@@ -135,3 +135,5 @@ Você também pode ajustar a **URL de scraping** em Configurações, caso o endp
 O scraping agora tenta `cloudscraper` primeiro (quando disponível) para melhorar compatibilidade com proteções anti-bot do site principal.
 
 O parser agora aceita placa antiga (ABC1234) e Mercosul (ABC1D23).
+
+Conectividade: o scraper agora tenta conexão **direta e via proxy do ambiente automaticamente** (requests/cloudscraper), para funcionar tanto em redes corporativas quanto domésticas.
